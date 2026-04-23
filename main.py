@@ -18,6 +18,7 @@ ADMIN_ID = 5094694146
 
 PRICES_FILE = 'prices.json'
 USERS_FILE = 'users.json'
+BANNED_FILE = 'banned.json'
 
 def load_users():
     if os.path.exists(USERS_FILE):
@@ -35,6 +36,27 @@ def save_user(user: types.User):
     }
     with open(USERS_FILE, 'w', encoding='utf-8') as f:
         json.dump(users, f, indent=4, ensure_ascii=False)
+
+def load_banned():
+    if os.path.exists(BANNED_FILE):
+        with open(BANNED_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return []
+
+def is_banned(user_id: int) -> bool:
+    return str(user_id) in [str(i) for i in load_banned()]
+
+def ban_user(user_id: int):
+    banned = load_banned()
+    if str(user_id) not in [str(i) for i in banned]:
+        banned.append(user_id)
+        with open(BANNED_FILE, 'w') as f:
+            json.dump(banned, f)
+
+def unban_user(user_id: int):
+    banned = [i for i in load_banned() if str(i) != str(user_id)]
+    with open(BANNED_FILE, 'w') as f:
+        json.dump(banned, f)
 DEFAULT_PRICES = {
     "zashitka": 22000,
     "tikuv": 40000,
@@ -81,6 +103,11 @@ class SettingsProcess(StatesGroup):
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     
+    # Bloklangan foydalanuvchini tekshirish
+    if is_banned(message.from_user.id):
+        await message.answer("⛔ Siz bu botdan foydalanish imkoniyatingizdan mahrum qilindingiz.")
+        return
+    
     # Foydalanuvchini saqlash
     user = message.from_user
     save_user(user)
@@ -112,10 +139,49 @@ async def cmd_users(message: types.Message):
     if not users:
         await message.answer("Hali hech kim botga kirmagan.")
         return
-    text = f"👥 **Jami foydalanuvchilar: {len(users)} ta**\n\n"
-    for u in list(users.values())[-20:]:  # Oxirgi 20 ta
-        text += f"• {u['ism']} | {u['username']} | {u['sana']}\n"
-    await message.answer(text, parse_mode="Markdown")
+    
+    text = f"<b>👥 Jami foydalanuvchilar: {len(users)} ta</b>\n\n"
+    
+    # Oxirgi 20 ta foydalanuvchi
+    users_list = list(users.values())
+    for u in users_list[-20:]:
+        # HTML uchun maxsus belgilarni tozalash
+        safe_name = str(u['ism']).replace('<', '&lt;').replace('>', '&gt;')
+        safe_uname = str(u['username']).replace('<', '&lt;').replace('>', '&gt;')
+        
+        text += f"• {safe_name} | {safe_uname} | <code>{u['sana']}</code> | ID: <code>{u['id']}</code>\n"
+    
+    await message.answer(text, parse_mode="HTML")
+
+@dp.message(Command("ban"))
+async def cmd_ban(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("Ishtatish: /ban <USER_ID>")
+        return
+    try:
+        user_id = int(args[1])
+        ban_user(user_id)
+        await message.answer(f"✅ Foydalanuvchi {user_id} bloklandi.")
+    except ValueError:
+        await message.answer("ID raqam bo'lishi kerak.")
+
+@dp.message(Command("unban"))
+async def cmd_unban(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("Ishlatish: /unban <USER_ID>")
+        return
+    try:
+        user_id = int(args[1])
+        unban_user(user_id)
+        await message.answer(f"✅ Foydalanuvchi {user_id} blokdan chiqarildi.")
+    except ValueError:
+        await message.answer("ID raqam bo'lishi kerak.")
 
 # --- 3. ISM, XONA VA O'LCHAM ---
 @dp.message(StateFilter(OrderProcess.waiting_name))
