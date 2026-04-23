@@ -1,6 +1,7 @@
 import math
 import os
 import json
+import datetime
 from dotenv import load_dotenv
 
 load_dotenv()  # local .env faylidan o'qiydi (Railway'da environment variables ishlatiladi)
@@ -16,6 +17,24 @@ API_TOKEN = os.getenv('BOT_TOKEN', '8797944374:AAE7xuw_RR5bhLIrFOxAYxXhy9HGB_cMB
 ADMIN_ID = 5094694146
 
 PRICES_FILE = 'prices.json'
+USERS_FILE = 'users.json'
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def save_user(user: types.User):
+    users = load_users()
+    users[str(user.id)] = {
+        'id': user.id,
+        'ism': user.full_name,
+        'username': f'@{user.username}' if user.username else 'Yo\'q',
+        'sana': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    }
+    with open(USERS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(users, f, indent=4, ensure_ascii=False)
 DEFAULT_PRICES = {
     "zashitka": 22000,
     "tikuv": 40000,
@@ -62,6 +81,19 @@ class SettingsProcess(StatesGroup):
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     
+    # Foydalanuvchini saqlash
+    user = message.from_user
+    save_user(user)
+    
+    # Adminga bildirishnoma
+    if user.id != ADMIN_ID:
+        uname = f'@{user.username}' if user.username else 'Yo\'q'
+        notif = f"👤 Yangi foydalanuvchi botga kirdi!\n\n🪪 Ism: {user.full_name}\n🔗 Username: {uname}\n🆔 ID: {user.id}"
+        try:
+            await bot.send_message(ADMIN_ID, notif)
+        except Exception:
+            pass
+    
     lang = PRICES.get('lang', 'uz')
     if lang == 'uz':
         msg = "👋 **Rayyon Pardalar** hisob-kitob tizimiga xush kelibsiz!\n\nMijoz ismini kiriting:"
@@ -70,6 +102,20 @@ async def cmd_start(message: types.Message, state: FSMContext):
         
     await message.answer(msg, parse_mode="Markdown")
     await state.set_state(OrderProcess.waiting_name)
+
+
+@dp.message(Command("users"))
+async def cmd_users(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    users = load_users()
+    if not users:
+        await message.answer("Hali hech kim botga kirmagan.")
+        return
+    text = f"👥 **Jami foydalanuvchilar: {len(users)} ta**\n\n"
+    for u in list(users.values())[-20:]:  # Oxirgi 20 ta
+        text += f"• {u['ism']} | {u['username']} | {u['sana']}\n"
+    await message.answer(text, parse_mode="Markdown")
 
 # --- 3. ISM, XONA VA O'LCHAM ---
 @dp.message(StateFilter(OrderProcess.waiting_name))
