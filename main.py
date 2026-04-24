@@ -11,6 +11,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command, StateFilter
+from aiogram.types import FSInputFile, ReplyKeyboardMarkup, KeyboardButton
+from utils import generate_receipt_image
 
 # --- SOZLAMALAR ---
 API_TOKEN = os.getenv('BOT_TOKEN', '8797944374:AAE7xuw_RR5bhLIrFOxAYxXhy9HGB_cMBc8')
@@ -99,6 +101,16 @@ def save_prices(prices):
 
 PRICES = load_prices()
 
+def get_admin_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📊 Mahsulotlar Hisoboti")],
+            [KeyboardButton(text="⚙️ Narxlar va Sozlamalar"), KeyboardButton(text="👥 Foydalanuvchilar")]
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Admin menyusi"
+    )
+
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -164,7 +176,9 @@ async def cmd_start(message: types.Message, state: FSMContext):
             "Нажмите кнопку ниже, чтобы начать расчет, или введите имя клиента:"
         )
         
-    await message.answer(msg, parse_mode="Markdown", reply_markup=kb, disable_web_page_preview=True)
+        
+    reply_markup = get_admin_kb() if message.from_user.id == ADMIN_ID else None
+    await message.answer(msg, parse_mode="Markdown", reply_markup=reply_markup, disable_web_page_preview=True)
     await state.set_state(OrderProcess.waiting_name)
 
 @dp.callback_query(F.data == "start_calc")
@@ -172,6 +186,47 @@ async def start_calc_cb(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("Mijoz ismini kiriting:")
     await state.set_state(OrderProcess.waiting_name)
     await callback.answer()
+
+@dp.message(F.text == "📊 Mahsulotlar Hisoboti")
+async def admin_report_btn(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    # Reuse the existing report logic or call the function
+    await admin_report_msg(message)
+
+@dp.message(F.text == "⚙️ Narxlar va Sozlamalar")
+async def admin_settings_btn(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    await show_settings_menu(message)
+
+@dp.message(F.text == "👥 Foydalanuvchilar")
+async def admin_users_btn(message: types.Message):
+    await cmd_users(message)
+
+async def admin_report_msg(message: types.Message):
+    orders = load_orders()
+    if not orders:
+        await message.answer("Hali hech qanday buyurtma saqlanmagan.")
+        return
+    tyul_u, part_u = {}, {}
+    for order in orders:
+        for room in order.get('rooms', []):
+            if room.get('tyul_on'):
+                c = room.get('tyul_code', 'Noma\'lum')
+                tyul_u[c] = tyul_u.get(c, 0) + float(room.get('tyul_metraj', 0))
+            if room.get('part_on'):
+                c = room.get('part_code', 'Noma\'lum')
+                part_u[c] = part_u.get(c, 0) + float(room.get('part_metraj', 0))
+    text = "📦 **Mahsulotlar Ishlatilishi Hisoboti**\n\n"
+    if tyul_u:
+        text += "▫️ **Tyullar:**\n"
+        for c, m in tyul_u.items(): text += f"   • {c}: {m:.2f} metr\n"
+        text += "\n"
+    if part_u:
+        text += "▫️ **Parterlar:**\n"
+        for c, m in part_u.items(): text += f"   • {c}: {m:.2f} metr\n"
+        text += "\n"
+    if not tyul_u and not part_u: text += "Ma'lumot topilmadi."
+    await message.answer(text, parse_mode="Markdown")
 
 @dp.message(Command("users"))
 async def cmd_users(message: types.Message):
@@ -529,12 +584,44 @@ async def finish_order(callback: types.CallbackQuery, state: FSMContext):
     final_text += f"\n💰 **UMUMIY HISOB: {f_n(total_summa)} so'm**\n"
     final_text += "---------------------\n✂️ Bizni tanlaganingiz uchun rahmat!\n"
     final_text += "📱 [Telegram](https://t.me/rayyonpardalar) | 📸 [Instagram](https://www.instagram.com/rayyon_pardalar)"
+    # 3 ta chek muammosini hal qilish uchun keyboardni o'chiramiz
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.edit_text(final_text, parse_mode="Markdown", disable_web_page_preview=True)
-    await callback.message.answer("✅ Buyurtmangiz hisob-kitob qilindi!", parse_mode="Markdown")
-    save_order({'client_name': client_name, 'user_id': callback.from_user.id, 'username': callback.from_user.username, 'rooms': rooms, 'total_summa': total_summa, 'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')})
-    try: await bot.send_message(ADMIN_ID, f"🗄 **YANGI BUYURTMA (ARXIV):**\n\n{final_text}", parse_mode="Markdown", disable_web_page_preview=True)
-    except: pass
+    
+    # Buyurtma ma'lumotlarini to'plash
+    order_data = {
+        'client_name': client_name,
+        'user_id': callback.from_user.id,
+        'username': callback.from_user.username,
+        'rooms': rooms,
+        'total_summa': total_summa,
+        'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    }
+    
+    try:
+        # Rasm chekni tayyorlash
+        photo_path = generate_receipt_image(order_data)
+        photo = FSInputFile(photo_path)
+        
+        # Faqat bitta rasm yuboramiz (matnli chek o'rniga)
+        await bot.send_photo(callback.from_user.id, photo, caption="✅ Buyurtmangiz hisob-kitob qilindi!")
+        
+        # Adminga ham yuborish
+        await bot.send_photo(ADMIN_ID, photo, caption=f"🗄 **YANGI BUYURTMA (Mijoz: {client_name})**")
+        
+        # Esk xabarni o'chirib yuboramiz yoki o'zgartiramiz
+        await callback.message.edit_text("📄 Hisob-kitob yakunlandi va chek yuborildi.")
+        
+        # Vaqtinchalik faylni o'chirish
+        if os.path.exists(photo_path):
+            os.remove(photo_path)
+            
+    except Exception as e:
+        print(f"Rasm yaratishda xatolik: {e}")
+        # Agar rasmda xato bo'lsa, eski matnli usulga qaytamiz
+        await callback.message.edit_text(final_text, parse_mode="Markdown", disable_web_page_preview=True)
+        await bot.send_message(ADMIN_ID, f"🗄 **YANGI BUYURTMA (MATNLI):**\n\n{final_text}", parse_mode="Markdown")
+
+    save_order(order_data)
     await state.clear()
 
 @dp.message(Command("settings"))
