@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 prices.json
+receipt_*.png
+test_receipt.py
+receipts/
+!receipts/.gitkeep

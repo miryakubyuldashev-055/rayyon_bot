@@ -608,12 +608,8 @@ async def finish_order(callback: types.CallbackQuery, state: FSMContext):
         # Adminga ham yuborish
         await bot.send_photo(ADMIN_ID, photo, caption=f"🗄 **YANGI BUYURTMA (Mijoz: {client_name})**")
         
-        # Esk xabarni o'chirib yuboramiz yoki o'zgartiramiz
+        # Hisob-kitob yakunlandi va chek yuborildi.
         await callback.message.edit_text("📄 Hisob-kitob yakunlandi va chek yuborildi.")
-        
-        # Vaqtinchalik faylni o'chirish
-        if os.path.exists(photo_path):
-            os.remove(photo_path)
             
     except Exception as e:
         print(f"Rasm yaratishda xatolik: {e}")
