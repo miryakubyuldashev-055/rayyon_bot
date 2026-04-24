@@ -19,6 +19,19 @@ ADMIN_ID = 5094694146
 PRICES_FILE = 'prices.json'
 USERS_FILE = 'users.json'
 BANNED_FILE = 'banned.json'
+ORDERS_FILE = 'orders.json'
+
+def load_orders():
+    if os.path.exists(ORDERS_FILE):
+        with open(ORDERS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return []
+
+def save_order(order_data: dict):
+    orders = load_orders()
+    orders.append(order_data)
+    with open(ORDERS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(orders, f, indent=4, ensure_ascii=False)
 
 def load_users():
     if os.path.exists(USERS_FILE):
@@ -57,20 +70,27 @@ def unban_user(user_id: int):
     banned = [i for i in load_banned() if str(i) != str(user_id)]
     with open(BANNED_FILE, 'w') as f:
         json.dump(banned, f)
+
 DEFAULT_PRICES = {
-    "zashitka": 22000,
-    "tikuv": 40000,
-    "karsaj": 5000,
-    "karset": 12000,
-    "radnoy_kalso": 7000,
-    "oddiy_kalso": 3000,
+    "zashitka": 22000.0,
+    "tikuv": 40000.0,
+    "karsaj": 5000.0,
+    "karset": 12000.0,
+    "radnoy_kalso": 7000.0,
+    "oddiy_kalso": 3000.0,
     "lang": "uz"
 }
 
 def load_prices():
     if os.path.exists(PRICES_FILE):
         with open(PRICES_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            # Ensure numeric values are floats
+            for k, v in data.items():
+                if k != 'lang' and isinstance(v, (int, float, str)):
+                    try: data[k] = float(v)
+                    except: pass
+            return data
     return DEFAULT_PRICES.copy()
 
 def save_prices(prices):
@@ -103,75 +123,87 @@ class SettingsProcess(StatesGroup):
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     
-    # Bloklangan foydalanuvchini tekshirish
     if is_banned(message.from_user.id):
         await message.answer("⛔ Siz bu botdan foydalanish imkoniyatingizdan mahrum qilindingiz.")
         return
     
-    # Foydalanuvchini saqlash
     user = message.from_user
     save_user(user)
     
-    # Adminga bildirishnoma
     if user.id != ADMIN_ID:
         uname = f'@{user.username}' if user.username else 'Yo\'q'
         notif = f"👤 Yangi foydalanuvchi botga kirdi!\n\n🪪 Ism: {user.full_name}\n🔗 Username: {uname}\n🆔 ID: {user.id}"
-        try:
-            await bot.send_message(ADMIN_ID, notif)
-        except Exception:
-            pass
+        try: await bot.send_message(ADMIN_ID, notif)
+        except: pass
     
     lang = PRICES.get('lang', 'uz')
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                types.InlineKeyboardButton(text="🔵 Telegram", url="https://t.me/rayyonpardalar"),
+                types.InlineKeyboardButton(text="📸 Instagram", url="https://www.instagram.com/rayyon_pardalar?igsh=ZDM4ZDU5NDczcmNw")
+            ],
+            [types.InlineKeyboardButton(text="✂️ Hisoblashni boshlash", callback_data="start_calc")]
+        ]
+    )
+    
     if lang == 'uz':
-        msg = "👋 **Rayyon Pardalar** hisob-kitob tizimiga xush kelibsiz!\n\nMijoz ismini kiriting:"
+        msg = (
+            "👋 **Rayyon Pardalar** hisob-kitob tizimiga xush kelibsiz!\n\n"
+            "Bizning ijtimoiy tarmoqlarimiz:\n"
+            "🔹 [Telegram](https://t.me/rayyonpardalar)\n"
+            "🔸 [Instagram](https://www.instagram.com/rayyon_pardalar)\n\n"
+            "Hisoblashni boshlash uchun quyidagi tugmani bosing yoki mijoz ismini yozib yuboring:"
+        )
     else:
-        msg = "👋 Добро пожаловать в систему расчета **Rayyon Pardalar**!\n\nВведите имя клиента:"
+        msg = (
+            "👋 Добро пожаловать в систему расчета **Rayyon Pardalar**!\n\n"
+            "Наши социальные сети:\n"
+            "🔹 [Telegram](https://t.me/rayyonpardalar)\n"
+            "🔸 [Instagram](https://www.instagram.com/rayyon_pardalar)\n\n"
+            "Нажмите кнопку ниже, чтобы начать расчет, или введите имя клиента:"
+        )
         
-    await message.answer(msg, parse_mode="Markdown")
+    await message.answer(msg, parse_mode="Markdown", reply_markup=kb, disable_web_page_preview=True)
     await state.set_state(OrderProcess.waiting_name)
 
+@dp.callback_query(F.data == "start_calc")
+async def start_calc_cb(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Mijoz ismini kiriting:")
+    await state.set_state(OrderProcess.waiting_name)
+    await callback.answer()
 
 @dp.message(Command("users"))
 async def cmd_users(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     users = load_users()
     if not users:
         await message.answer("Hali hech kim botga kirmagan.")
         return
-    
     text = f"<b>👥 Jami foydalanuvchilar: {len(users)} ta</b>\n\n"
-    
-    # Oxirgi 20 ta foydalanuvchi
     users_list = list(users.values())
     for u in users_list[-20:]:
-        # HTML uchun maxsus belgilarni tozalash
         safe_name = str(u['ism']).replace('<', '&lt;').replace('>', '&gt;')
         safe_uname = str(u['username']).replace('<', '&lt;').replace('>', '&gt;')
-        
         text += f"• {safe_name} | {safe_uname} | <code>{u['sana']}</code> | ID: <code>{u['id']}</code>\n"
-    
     await message.answer(text, parse_mode="HTML")
 
 @dp.message(Command("ban"))
 async def cmd_ban(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     args = message.text.split()
     if len(args) < 2:
-        await message.answer("Ishtatish: /ban <USER_ID>")
+        await message.answer("Ishlatish: /ban <USER_ID>")
         return
     try:
         user_id = int(args[1])
         ban_user(user_id)
         await message.answer(f"✅ Foydalanuvchi {user_id} bloklandi.")
-    except ValueError:
-        await message.answer("ID raqam bo'lishi kerak.")
+    except: await message.answer("ID raqam bo'lishi kerak.")
 
 @dp.message(Command("unban"))
 async def cmd_unban(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     args = message.text.split()
     if len(args) < 2:
         await message.answer("Ishlatish: /unban <USER_ID>")
@@ -180,8 +212,79 @@ async def cmd_unban(message: types.Message):
         user_id = int(args[1])
         unban_user(user_id)
         await message.answer(f"✅ Foydalanuvchi {user_id} blokdan chiqarildi.")
-    except ValueError:
-        await message.answer("ID raqam bo'lishi kerak.")
+    except: await message.answer("ID raqam bo'lishi kerak.")
+
+# --- NAVIGATION HANDLERS ---
+@dp.callback_query(F.data.startswith("back_to_"))
+async def process_back_button(callback: types.CallbackQuery, state: FSMContext):
+    target = callback.data.replace("back_to_", "")
+    data = await state.get_data()
+    
+    if target == "name":
+        await state.set_state(OrderProcess.waiting_name)
+        await callback.message.answer("Mijoz ismini kiriting:")
+    elif target == "room":
+        await prompt_room_name(callback, state)
+    elif target == "dims":
+        await state.set_state(OrderProcess.waiting_dims)
+        kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_room")]])
+        await callback.message.answer("O'lchamlarni kiriting (Eni va Bo'yi ketma-ketligida):\n(Masalan: 4.0 3.1)", reply_markup=kb)
+    elif target == "skladka":
+        await state.set_state(OrderProcess.waiting_skladka)
+        kb = types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [types.InlineKeyboardButton(text="1:2.0", callback_data="sk_2.0"), types.InlineKeyboardButton(text="1:2.5", callback_data="sk_2.5")],
+                [types.InlineKeyboardButton(text="1:2.8", callback_data="sk_2.8"), types.InlineKeyboardButton(text="1:3.0", callback_data="sk_3.0")],
+                [types.InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_dims")]
+            ]
+        )
+        await callback.message.answer("Skladkani tanlang:", reply_markup=kb)
+    elif target == "components":
+        await state.set_state(OrderProcess.waiting_components)
+        await show_components_menu(callback.message, data)
+    elif target == "tyul_narxi":
+        await state.set_state(OrderProcess.waiting_tyul_narxi)
+        kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_components")]])
+        await callback.message.answer("Tyulning kodi va 1 metr narxini kiriting:\n(Masalan: T-105 45000)", reply_markup=kb)
+    elif target == "parter_narxi":
+        await state.set_state(OrderProcess.waiting_parter_narxi)
+        back_t = "back_to_tyul_narxi" if data.get('comp_tyul', True) else "back_to_components"
+        kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🔙 Orqaga", callback_data=back_t)]])
+        await callback.message.answer("Parterning kodi va 1 metr narxini kiriting:\n(Masalan: P-300 85000)", reply_markup=kb)
+    elif target == "style":
+        await go_to_style_direct(callback.message, state)
+    
+    await callback.answer()
+
+@dp.callback_query(F.data == "admin_report")
+async def admin_report(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return
+    orders = load_orders()
+    if not orders:
+        await callback.message.answer("Hali hech qanday buyurtma saqlanmagan.")
+        return
+    tyul_u = {}
+    part_u = {}
+    for order in orders:
+        for room in order.get('rooms', []):
+            if room.get('tyul_on'):
+                c = room.get('tyul_code', 'Noma\'lum')
+                tyul_u[c] = tyul_u.get(c, 0) + float(room.get('tyul_metraj', 0))
+            if room.get('part_on'):
+                c = room.get('part_code', 'Noma\'lum')
+                part_u[c] = part_u.get(c, 0) + float(room.get('part_metraj', 0))
+    text = "📦 **Mahsulotlar Ishlatilishi Hisoboti**\n\n"
+    if tyul_u:
+        text += "▫️ **Tyullar:**\n"
+        for c, m in tyul_u.items(): text += f"   • {c}: {m:.2f} metr\n"
+        text += "\n"
+    if part_u:
+        text += "▫️ **Parterlar:**\n"
+        for c, m in part_u.items(): text += f"   • {c}: {m:.2f} metr\n"
+        text += "\n"
+    if not tyul_u and not part_u: text += "Ma'lumot topilmadi."
+    await callback.message.answer(text, parse_mode="Markdown")
+    await callback.answer()
 
 # --- 3. ISM, XONA VA O'LCHAM ---
 @dp.message(StateFilter(OrderProcess.waiting_name))
@@ -192,35 +295,21 @@ async def get_name(message: types.Message, state: FSMContext):
 async def prompt_room_name(message_or_call, state: FSMContext):
     kb = types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                types.InlineKeyboardButton(text="🛏 Yotoqxona (Spalni)", callback_data="room_Spalni"),
-                types.InlineKeyboardButton(text="🛋 Mehmonxona (Zal)", callback_data="room_Zal")
-            ],
-            [
-                types.InlineKeyboardButton(text="🍽 Oshxona", callback_data="room_Oshxona"),
-                types.InlineKeyboardButton(text="🧸 Bolalar xonasi", callback_data="room_Bolalar")
-            ]
+            [types.InlineKeyboardButton(text="🛏 Yotoqxona (Spalni)", callback_data="room_Spalni"), types.InlineKeyboardButton(text="🛋 Mehmonxona (Zal)", callback_data="room_Zal")],
+            [types.InlineKeyboardButton(text="🍽 Oshxona", callback_data="room_Oshxona"), types.InlineKeyboardButton(text="🧸 Bolalar xonasi", callback_data="room_Bolalar")],
+            [types.InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_name")]
         ]
     )
-    
     msg = "Xona nomini tugmalardan tanlang yoki o'zingiz yozib yuboring:"
-    if isinstance(message_or_call, types.Message):
-        await message_or_call.answer(msg, reply_markup=kb)
-    else:
-        await message_or_call.message.answer(msg, reply_markup=kb)
+    if isinstance(message_or_call, types.Message): await message_or_call.answer(msg, reply_markup=kb)
+    else: await message_or_call.message.answer(msg, reply_markup=kb)
     await state.set_state(OrderProcess.waiting_room_name)
 
 @dp.callback_query(StateFilter(OrderProcess.waiting_room_name), F.data.startswith('room_'))
 async def process_room_cb(callback: types.CallbackQuery, state: FSMContext):
     room_base = callback.data.split('_')[1]
-    mapping = {
-        "Zal": "Mehmonxona (Zal)",
-        "Spalni": "Yotoqxona (Spalni)",
-        "Oshxona": "Oshxona",
-        "Bolalar": "Bolalar xonasi"
-    }
-    room_base_name = mapping.get(room_base, room_base)
-    await set_room_name(room_base_name, callback.message, state)
+    mapping = {"Zal": "Mehmonxona (Zal)", "Spalni": "Yotoqxona (Spalni)", "Oshxona": "Oshxona", "Bolalar": "Bolalar xonasi"}
+    await set_room_name(mapping.get(room_base, room_base), callback.message, state)
 
 @dp.message(StateFilter(OrderProcess.waiting_room_name))
 async def get_room_name(message: types.Message, state: FSMContext):
@@ -229,17 +318,11 @@ async def get_room_name(message: types.Message, state: FSMContext):
 async def set_room_name(room_base_name: str, message: types.Message, state: FSMContext):
     data = await state.get_data()
     rooms = data.get('rooms', [])
-    
     count = sum(1 for r in rooms if r.get('room_base') == room_base_name)
-    if count == 0:
-        final_room_name = room_base_name
-    else:
-        final_room_name = f"{room_base_name} {count + 1}"
-        
-    await state.update_data(room_name=final_room_name, room_base=room_base_name)
-    
-    msg = f"✅ Tanlandi: {final_room_name}\n\nEndi o'lchamlarni kiriting (Eni va Bo'yi ketma-ketligida):\n(Masalan: 4.0 3.1)"
-    await message.answer(msg)
+    final_name = room_base_name if count == 0 else f"{room_base_name} {count + 1}"
+    await state.update_data(room_name=final_name, room_base=room_base_name)
+    kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_room")]])
+    await message.answer(f"✅ Tanlandi: {final_name}\n\nEndi o'lchamlarni kiriting (Eni va Bo'yi ketma-ketligida):\n(Masalan: 4.0 3.1)", reply_markup=kb)
     await state.set_state(OrderProcess.waiting_dims)
 
 @dp.message(StateFilter(OrderProcess.waiting_dims))
@@ -247,395 +330,263 @@ async def get_dims(message: types.Message, state: FSMContext):
     try:
         w, h = map(float, message.text.split())
         await state.update_data(width=w, height=h)
-        
         kb = types.InlineKeyboardMarkup(
             inline_keyboard=[
-                [
-                    types.InlineKeyboardButton(text="1:2.0", callback_data="sk_2.0"),
-                    types.InlineKeyboardButton(text="1:2.5", callback_data="sk_2.5")
-                ],
-                [
-                    types.InlineKeyboardButton(text="1:2.8", callback_data="sk_2.8"),
-                    types.InlineKeyboardButton(text="1:3.0", callback_data="sk_3.0")
-                ]
+                [types.InlineKeyboardButton(text="1:2.0", callback_data="sk_2.0"), types.InlineKeyboardButton(text="1:2.5", callback_data="sk_2.5")],
+                [types.InlineKeyboardButton(text="1:2.8", callback_data="sk_2.8"), types.InlineKeyboardButton(text="1:3.0", callback_data="sk_3.0")],
+                [types.InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_dims")]
             ]
         )
         await message.answer("Skladkani tanlang:", reply_markup=kb)
         await state.set_state(OrderProcess.waiting_skladka)
-    except ValueError:
-        await message.answer("❌ Xato! O'lchamni '3.5 2.8' ko'rinishida yozing.")
+    except: await message.answer("❌ Xato! O'lchamni '3.5 2.8' ko'rinishida yozing.")
 
 @dp.callback_query(StateFilter(OrderProcess.waiting_skladka), F.data.startswith('sk_'))
 async def get_skladka(callback: types.CallbackQuery, state: FSMContext):
-    sklad = float(callback.data.split('_')[1])
-    await state.update_data(skladka=sklad)
-    
+    await state.update_data(skladka=float(callback.data.split('_')[1]))
     await state.update_data(comp_tyul=True, comp_zash=True, comp_part=False)
     await show_components_menu(callback.message, await state.get_data())
     await state.set_state(OrderProcess.waiting_components)
 
 async def show_components_menu(message: types.Message, data: dict):
-    tyul_on = data.get('comp_tyul', True)
-    zash_on = data.get('comp_zash', True)
-    part_on = data.get('comp_part', False)
-    
-    t_text = "✅ Tyul" if tyul_on else "❌ Tyul"
-    z_text = "✅ Zashitka" if zash_on else "❌ Zashitka"
-    p_text = "✅ Parter" if part_on else "❌ Parter"
-    
+    t_on, z_on, p_on = data.get('comp_tyul', True), data.get('comp_zash', True), data.get('comp_part', False)
     kb = types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                types.InlineKeyboardButton(text=t_text, callback_data="comp_tyul"),
-                types.InlineKeyboardButton(text=z_text, callback_data="comp_zash"),
-                types.InlineKeyboardButton(text=p_text, callback_data="comp_part")
-            ],
+            [types.InlineKeyboardButton(text="✅ Tyul" if t_on else "❌ Tyul", callback_data="comp_tyul"),
+             types.InlineKeyboardButton(text="✅ Zashitka" if z_on else "❌ Zashitka", callback_data="comp_zash"),
+             types.InlineKeyboardButton(text="✅ Parter" if p_on else "❌ Parter", callback_data="comp_part")],
+            [types.InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_skladka")],
             [types.InlineKeyboardButton(text="➡️ DAVOM ETISH", callback_data="next_step")]
         ]
     )
-    
-    msg = "Parda tarkibini tanlang (yoqish/o'chirish uchun ustiga bosing):"
-    await message.edit_text(msg, reply_markup=kb)
+    await message.edit_text("Parda tarkibini tanlang:", reply_markup=kb)
 
 @dp.callback_query(StateFilter(OrderProcess.waiting_components), F.data.startswith('comp_'))
 async def toggle_component(callback: types.CallbackQuery, state: FSMContext):
-    comp_type = callback.data # comp_tyul, comp_zash, comp_part
+    c_type = callback.data
     data = await state.get_data()
-    
-    current_val = data.get(comp_type, False)
-    if comp_type == 'comp_tyul' and 'comp_tyul' not in data:
-        current_val = True
-    if comp_type == 'comp_zash' and 'comp_zash' not in data:
-        current_val = True
-        
-    await state.update_data({comp_type: not current_val})
-    new_data = await state.get_data()
-    
-    await show_components_menu(callback.message, new_data)
+    val = data.get(c_type, True if c_type in ['comp_tyul', 'comp_zash'] else False)
+    await state.update_data({c_type: not val})
+    await show_components_menu(callback.message, await state.get_data())
 
 @dp.callback_query(StateFilter(OrderProcess.waiting_components), F.data == "next_step")
 async def prompt_tyul_yoki_parter(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     if data.get('comp_tyul', True):
-        msg = "Tyulning kodi va 1 metr narxini kiriting:\n(Masalan: T-105 45000)"
-        await callback.message.edit_text(msg)
+        kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_components")]])
+        await callback.message.edit_text("Tyulning kodi va 1 metr narxini kiriting:\n(Masalan: T-105 45000)", reply_markup=kb)
         await state.set_state(OrderProcess.waiting_tyul_narxi)
-    else:
-        await check_and_prompt_parter(callback.message, state)
+    else: await check_and_prompt_parter(callback.message, state)
 
 @dp.message(StateFilter(OrderProcess.waiting_tyul_narxi))
 async def get_tyul_narxi(message: types.Message, state: FSMContext):
     text = message.text.split()
     if len(text) >= 2:
-        tyul_code = " ".join(text[:-1])
         try:
-            price_str = text[-1].replace('.', '').replace(',', '')
-            await state.update_data(tyul_code=tyul_code, tyul_price=float(price_str))
+            p = float(text[-1].replace('.', '').replace(',', ''))
+            await state.update_data(tyul_code=" ".join(text[:-1]), tyul_price=p)
             await check_and_prompt_parter(message, state)
-        except ValueError:
-            await message.answer("Masalan: T-105 45000")
-    else:
-        await message.answer("Iltimos to'liq kiriting: kod va narx.")
+        except: await message.answer("Masalan: T-105 45000")
+    else: await message.answer("Iltimos to'liq kiriting: kod va narx.")
 
-async def check_and_prompt_parter(message_or_call, state: FSMContext):
+async def check_and_prompt_parter(m_or_c, state: FSMContext):
     data = await state.get_data()
     if data.get('comp_part', False):
+        back_t = "back_to_tyul_narxi" if data.get('comp_tyul', True) else "back_to_components"
+        kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🔙 Orqaga", callback_data=back_t)]])
         msg = "Parterning kodi va 1 metr narxini kiriting:\n(Masalan: P-300 85000)"
-        if isinstance(message_or_call, types.Message):
-            await message_or_call.answer(msg)
-        else:
-            await message_or_call.edit_text(msg)
+        if isinstance(m_or_c, types.Message): await m_or_c.answer(msg, reply_markup=kb)
+        else: await m_or_c.edit_text(msg, reply_markup=kb)
         await state.set_state(OrderProcess.waiting_parter_narxi)
-    else:
-        await go_to_style_direct(message_or_call, state)
+    else: await go_to_style_direct(m_or_c, state)
 
 @dp.message(StateFilter(OrderProcess.waiting_parter_narxi))
 async def get_parter_narxi(message: types.Message, state: FSMContext):
     text = message.text.split()
     if len(text) >= 2:
-        part_code = " ".join(text[:-1])
         try:
-            price_str = text[-1].replace('.', '').replace(',', '')
-            await state.update_data(part_code=part_code, part_price=float(price_str))
+            p = float(text[-1].replace('.', '').replace(',', ''))
+            await state.update_data(part_code=" ".join(text[:-1]), part_price=p)
             await go_to_style_direct(message, state)
-        except ValueError:
-            await message.answer("Masalan: P-300 85000")
-    else:
-        await message.answer("Iltimos to'liq kiriting: kod va narx.")
+        except: await message.answer("Masalan: P-300 85000")
+    else: await message.answer("Iltimos to'liq kiriting: kod va narx.")
 
-async def go_to_style_direct(message_or_call, state: FSMContext):
-    kb = types.InlineKeyboardMarkup(
-        inline_keyboard=[[
-            types.InlineKeyboardButton(text="🎀 Karsaj", callback_data="style_karsaj"),
-            types.InlineKeyboardButton(text="✨ Karset", callback_data="style_karset")
-        ]]
-    )
-    
+async def go_to_style_direct(m_or_c, state: FSMContext):
+    data = await state.get_data()
+    back_t = "back_to_parter_narxi" if data.get('comp_part', False) else ("back_to_tyul_narxi" if data.get('comp_tyul', True) else "back_to_components")
+    kb = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="🎀 Karsaj", callback_data="style_karsaj"), types.InlineKeyboardButton(text="✨ Karset", callback_data="style_karset")],
+        [types.InlineKeyboardButton(text="🔙 Orqaga", callback_data=back_t)]
+    ])
     msg = "Pardaning yuqori qismiga nima tikamiz?"
-    if isinstance(message_or_call, types.Message):
-        await message_or_call.answer(msg, reply_markup=kb)
-    else:
-        await message_or_call.edit_text(msg, reply_markup=kb)
+    if isinstance(m_or_c, types.Message): await m_or_c.answer(msg, reply_markup=kb)
+    else: await m_or_c.edit_text(msg, reply_markup=kb)
     await state.set_state(OrderProcess.waiting_style)
 
 @dp.callback_query(StateFilter(OrderProcess.waiting_style), F.data.startswith('style_'))
 async def process_style(callback: types.CallbackQuery, state: FSMContext):
-    style_type = callback.data.split('_')[1]
-    await state.update_data(style=style_type)
-    
-    if style_type == 'karsaj':
-        await execute_calculate_final(callback.message, state)
+    s_type = callback.data.split('_')[1]
+    await state.update_data(style=s_type)
+    if s_type == 'karsaj': await execute_calculate_final(callback.message, state)
     else:
-        kb = types.InlineKeyboardMarkup(
-            inline_keyboard=[[
-                types.InlineKeyboardButton(text="🟡 Radnoy kalso", callback_data="kalso_radnoy"),
-                types.InlineKeyboardButton(text="⚪ Oddiy kalso", callback_data="kalso_oddiy")
-            ]]
-        )
+        kb = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="🟡 Radnoy kalso", callback_data="kalso_radnoy"), types.InlineKeyboardButton(text="⚪ Oddiy kalso", callback_data="kalso_oddiy")],
+            [types.InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_style")]
+        ])
         await callback.message.edit_text("Halqa (Kalso) turini tanlang:", reply_markup=kb)
         await state.set_state(OrderProcess.waiting_kalso)
 
 @dp.callback_query(StateFilter(OrderProcess.waiting_kalso), F.data.startswith('kalso_'))
 async def process_kalso(callback: types.CallbackQuery, state: FSMContext):
-    kalso_type = callback.data.split('_')[1]
-    await state.update_data(kalso=kalso_type)
+    await state.update_data(kalso=callback.data.split('_')[1])
     await execute_calculate_final(callback.message, state)
 
 async def execute_calculate_final(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    w = data['width']
-    h = data['height']
-    sk = data['skladka']
+    w, h, sk = data['width'], data['height'], data['skladka']
+    t_on, z_on, p_on = data.get('comp_tyul', True), data.get('comp_zash', True), data.get('comp_part', False)
+    t_price, p_price = data.get('tyul_price', 0), data.get('part_price', 0)
+    s_type, k_type = data.get('style', 'karsaj'), data.get('kalso', None)
     
-    tyul_on = data.get('comp_tyul', True)
-    zash_on = data.get('comp_zash', True)
-    part_on = data.get('comp_part', False)
-    
-    tyul_code = data.get('tyul_code', '')
-    tyul_price = data.get('tyul_price', 0)
-    part_code = data.get('part_code', '')
-    part_price = data.get('part_price', 0)
-    
-    style_type = data.get('style', 'karsaj')
-    kalso_type = data.get('kalso', None)
-    
-    mato_metraj = 0
-    parter_metraj = 0
-    tikuv_summa = 0
-    tikuv_metraj = 0
-    zash_summa = 0
-    tyul_mato_summa = 0
-    parter_mato_summa = 0
-    asosiy_karsaj_metrati = 0
-    
-    if tyul_on:
-        mato_metraj = (w * sk) + 0.20
-        tikuv_metraj += mato_metraj
-        tikuv_summa += mato_metraj * PRICES['tikuv']
-        tyul_mato_summa = mato_metraj * tyul_price
-        asosiy_karsaj_metrati += w
+    mato_m, part_m, tik_s, tik_m, zash_s, t_m_s, p_m_s, kars_m = 0, 0, 0, 0, 0, 0, 0, 0
+    if t_on:
+        mato_m = (w * sk) + 0.20
+        tik_m += mato_m
+        tik_s += mato_m * float(PRICES['tikuv'])
+        t_m_s = mato_m * t_price
+        kars_m += w
+    if p_on:
+        part_m = (h + 0.20) * 2
+        tik_m += part_m
+        tik_s += part_m * float(PRICES['tikuv'])
+        p_m_s = part_m * p_price
+        kars_m += 1.8
+    if z_on:
+        zm = w + 0.20
+        zash_s = zm * float(PRICES['zashitka'])
+        tik_m += zm
+        tik_s += zm * float(PRICES['tikuv'])
+        kars_m += w
             
-    if part_on:
-        parter_metraj = (h + 0.20) * 2
-        tikuv_metraj += parter_metraj
-        tikuv_summa += parter_metraj * PRICES['tikuv']
-        parter_mato_summa = parter_metraj * part_price
-        asosiy_karsaj_metrati += 1.8
-            
-    if zash_on:
-        zash_summa = (w + 0.20) * PRICES['zashitka']
-        asosiy_karsaj_metrati += w
-            
-    tasma_nomi = ""
-    tasma_summa = 0
-    tasma_metrati_to_show = 0
-    tasma_narxi = 0
-    kalso_summa = 0
-    kalso_soni = 0
-    kalso_narxi = 0
-    
-    if style_type == 'karsaj':
-        tasma_nomi = "Karsaj"
-        tasma_narxi = PRICES['karsaj']
-        tasma_summa = asosiy_karsaj_metrati * tasma_narxi
-        tasma_metrati_to_show = asosiy_karsaj_metrati
+    t_nomi, t_s, t_m_show, t_n, k_s, k_soni, k_n = "", 0, 0, 0, 0, 0, 0
+    if s_type == 'karsaj':
+        t_nomi, t_n = "Karsaj", float(PRICES['karsaj'])
+        t_s, t_m_show = kars_m * t_n, kars_m
     else:
-        if kalso_type == 'oddiy':
-            tasma_nomi = "Karset"
-            tasma_metrati_to_show = asosiy_karsaj_metrati
-            tasma_narxi = PRICES['karset']
-            tasma_summa = tasma_metrati_to_show * tasma_narxi
-            kalso_soni = int(tasma_metrati_to_show * 10)
-            kalso_narxi = PRICES['oddiy_kalso']
-            kalso_summa = kalso_soni * kalso_narxi
-        elif kalso_type == 'radnoy':
-            tasma_nomi = "Karset"
-            tasma_metrati_to_show = parter_metraj 
-            tasma_narxi = PRICES['karset']
-            tasma_summa = tasma_metrati_to_show * tasma_narxi
-            kalso_soni = int(tasma_metrati_to_show / 0.15)
-            kalso_narxi = PRICES['radnoy_kalso']
-            kalso_summa = kalso_soni * kalso_narxi
+        t_nomi, t_n = "Karset", float(PRICES['karset'])
+        if k_type == 'oddiy':
+            t_m_show = kars_m
+            t_s, k_soni, k_n = t_m_show * t_n, int(t_m_show * 10), float(PRICES['oddiy_kalso'])
+            k_s = k_soni * k_n
+        elif k_type == 'radnoy':
+            t_m_show = part_m
+            t_s, k_soni, k_n = t_m_show * t_n, int(t_m_show / 0.15), float(PRICES['radnoy_kalso'])
+            k_s = k_soni * k_n
             
-    jami = tikuv_summa + zash_summa + tasma_summa + kalso_summa + tyul_mato_summa + parter_mato_summa
+    jami = float(tik_s) + float(zash_s) + float(t_s) + float(k_s) + float(t_m_s) + float(p_m_s)
+    def f_n(n): return f"{n:,.0f}"
+    r_name = data.get('room_name', '')
+    text = f"🏠 Xona: {r_name}\n\n"
+    if t_on: text += f"Tyul ({data.get('tyul_code')}): {mato_m:.2f} m × {f_n(t_price)} = {f_n(t_m_s)}\n\n"
+    if p_on: text += f"Parter ({data.get('part_code')}): {part_m:.2f} m × {f_n(p_price)} = {f_n(p_m_s)}\n\n"
+    if z_on: text += f"Zashitka: {w+0.20:.2f} m × {f_n(PRICES['zashitka'])} = {f_n(zash_s)}\n\n"
+    if t_m_show > 0:
+        text += f"{t_nomi}: {t_m_show:.2f} m × {f_n(t_n)} = {f_n(t_s)}\n\n"
+        if k_soni > 0: text += f"Kalso ({k_type}): {k_soni} ta × {f_n(k_n)} = {f_n(k_s)}\n\n"
+    if tik_m > 0: text += f"Tikuv xizmati: {tik_m:.2f} m × {f_n(PRICES['tikuv'])} = {f_n(tik_s)}\n\n"
+    text += f"Xona jami: {f_n(jami)} so'm"
     
-    def format_num(n):
-        return f"{n:,.0f}".replace(',', ',')
-        
-    room_name = data.get('room_name', '')
-    text = f"🏠 Xona: {room_name}\n\n"
-    
-    if tyul_on:
-        text += f"Tyul ({tyul_code}): {mato_metraj:.2f} m × {format_num(tyul_price)} = {format_num(tyul_mato_summa)}\n\n"
-    if part_on:
-        text += f"Parter ({part_code}): {parter_metraj:.2f} m × {format_num(part_price)} = {format_num(parter_mato_summa)}\n\n"
-    if zash_on:
-        text += f"Zashitka: {w+0.20:.2f} m × {format_num(PRICES['zashitka'])} = {format_num(zash_summa)}\n\n"
-    if tasma_metrati_to_show > 0:
-        text += f"{tasma_nomi}: {tasma_metrati_to_show:.2f} m × {format_num(tasma_narxi)} = {format_num(tasma_summa)}\n\n"
-        if kalso_soni > 0:
-            text += f"Kalso ({kalso_type}): {kalso_soni} ta × {format_num(kalso_narxi)} = {format_num(kalso_summa)}\n\n"
-    if tikuv_metraj > 0:
-        text += f"Tikuv xizmati: {tikuv_metraj:.2f} m × {format_num(PRICES['tikuv'])} = {format_num(tikuv_summa)}\n\n"
-        
-    text += f"Xona jami: {format_num(jami)} so'm"
-    
-    room_obj = {
-        'room_name': room_name,
-        'room_base': data.get('room_base', ''),
-        'jami': jami,
-        'text': text
-    }
+    room_obj = {'room_name': r_name, 'room_base': data.get('room_base'), 'width': w, 'height': h, 'skladka': sk,
+                'tyul_on': t_on, 'tyul_code': data.get('tyul_code'), 'tyul_price': t_price, 'tyul_metraj': mato_m, 
+                'part_on': p_on, 'part_code': data.get('part_code'), 'part_price': p_price, 'part_metraj': part_m,
+                'zash_on': z_on, 'zash_summa': zash_s, 'jami': jami, 'text': text}
     rooms = data.get('rooms', [])
     rooms.append(room_obj)
     await state.update_data(rooms=rooms)
-    
-    kb = types.InlineKeyboardMarkup(
-        inline_keyboard=[
-            [types.InlineKeyboardButton(text="➕ Yana xona qo'shish", callback_data="add_room")],
-            [types.InlineKeyboardButton(text="📄 Yakunlash (Hisobot olish)", callback_data="finish_order")]
-        ]
-    )
-    
-    if isinstance(message, types.Message):
-        await message.answer(text, reply_markup=kb)
-    else:
-        await message.edit_text(text, reply_markup=kb)
-        
+    kb = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="➕ Yana xona qo'shish", callback_data="add_room")],
+        [types.InlineKeyboardButton(text="📄 Yakunlash (Hisobot olish)", callback_data="finish_order")]
+    ])
+    if isinstance(message, types.Message): await message.answer(text, reply_markup=kb)
+    else: await message.edit_text(text, reply_markup=kb)
     await state.set_state(OrderProcess.waiting_next_action)
 
 @dp.callback_query(StateFilter(OrderProcess.waiting_next_action), F.data == "add_room")
 async def go_to_add_room(callback: types.CallbackQuery, state: FSMContext):
-    await state.update_data(
-        comp_tyul=True, comp_zash=True, comp_part=False,
-        tyul_code='', tyul_price=0, part_code='', part_price=0,
-        style='karsaj', kalso=None,
-        width=None, height=None, skladka=None
-    )
+    await state.update_data(comp_tyul=True, comp_zash=True, comp_part=False, tyul_code='', tyul_price=0, part_code='', part_price=0, style='karsaj', kalso=None, width=None, height=None, skladka=None)
     await prompt_room_name(callback, state)
 
 @dp.callback_query(StateFilter(OrderProcess.waiting_next_action), F.data == "finish_order")
 async def finish_order(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    rooms = data.get('rooms', [])
-    client_name = data.get('name', 'Mijoz')
-    
-    def format_num(n):
-        return f"{n:,.0f}".replace(',', ',')
-        
-    final_text = f"👤 Mijoz: {client_name}\n"
-    final_text += "=====================\n\n"
-    
+    rooms, client_name = data.get('rooms', []), data.get('name', 'Mijoz')
+    def f_n(n): return f"{n:,.0f}"
+    final_text = f"👤 Mijoz: {client_name}\n=====================\n\n"
     total_summa = 0
     for r in rooms:
         final_text += f"{r['text']}\n\n---------------------\n\n"
         total_summa += r['jami']
-        
-    final_text += f"💰 **UMUMIY HISOB: {format_num(total_summa)} so'm**\n"
-    
-    await callback.message.edit_text(final_text)
-    await callback.message.answer("Buyurtmangiz qabul qilindi!")
-    
-    try:
-        await bot.send_message(ADMIN_ID, f"🗄 **YANGI BUYURTMA (ARXIV):**\n\n{final_text}")
-    except Exception as e:
-        print(f"Adminga yuborishda xatolik: {e}")
-        
+    final_text += f"\n💰 **UMUMIY HISOB: {f_n(total_summa)} so'm**\n"
+    final_text += "---------------------\n✂️ Bizni tanlaganingiz uchun rahmat!\n"
+    final_text += "📱 [Telegram](https://t.me/rayyonpardalar) | 📸 [Instagram](https://www.instagram.com/rayyon_pardalar)"
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.edit_text(final_text, parse_mode="Markdown", disable_web_page_preview=True)
+    await callback.message.answer("✅ Buyurtmangiz hisob-kitob qilindi!", parse_mode="Markdown")
+    save_order({'client_name': client_name, 'user_id': callback.from_user.id, 'username': callback.from_user.username, 'rooms': rooms, 'total_summa': total_summa, 'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')})
+    try: await bot.send_message(ADMIN_ID, f"🗄 **YANGI BUYURTMA (ARXIV):**\n\n{final_text}", parse_mode="Markdown", disable_web_page_preview=True)
+    except: pass
     await state.clear()
 
-
-# --- 8. ADMIN SOZLAMALAR ---
 @dp.message(Command("settings"))
 async def cmd_settings(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
+    if message.from_user.id != ADMIN_ID: return
     await show_settings_menu(message)
 
-async def show_settings_menu(message_or_call):
+async def show_settings_menu(m_or_c):
     lang = PRICES.get('lang', 'uz')
-    
-    kb = types.InlineKeyboardMarkup(
-        inline_keyboard=[
-            [types.InlineKeyboardButton(text=f"🌐 Til: {'🇺🇿 O\'zbek' if lang == 'uz' else '🇷🇺 Русский'}", callback_data="set_lang_toggle")],
-            [types.InlineKeyboardButton(text=f"🛡 Zashitka: {PRICES['zashitka']:,.0f}", callback_data="set_zashitka")],
-            [types.InlineKeyboardButton(text=f"🧵 Tikuv: {PRICES['tikuv']:,.0f}", callback_data="set_tikuv")],
-            [types.InlineKeyboardButton(text=f"🎀 Karsaj: {PRICES['karsaj']:,.0f}", callback_data="set_karsaj")],
-            [types.InlineKeyboardButton(text=f"✨ Karset: {PRICES['karset']:,.0f}", callback_data="set_karset")],
-            [types.InlineKeyboardButton(text=f"🟡 Radnoy kalso: {PRICES['radnoy_kalso']:,.0f}", callback_data="set_radnoy_kalso")],
-            [types.InlineKeyboardButton(text=f"⚪ Oddiy kalso: {PRICES['oddiy_kalso']:,.0f}", callback_data="set_oddiy_kalso")],
-            [types.InlineKeyboardButton(text="❌ Bekor qilish", callback_data="set_cancel")]
-        ]
-    )
-    
+    kb = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text=f"🌐 Til: {'🇺🇿 O‘zbek' if lang == 'uz' else '🇷🇺 Русский'}", callback_data="set_lang_toggle")],
+        [types.InlineKeyboardButton(text=f"🛡 Zashitka: {PRICES['zashitka']:,.0f}", callback_data="set_zashitka")],
+        [types.InlineKeyboardButton(text=f"🧵 Tikuv: {PRICES['tikuv']:,.0f}", callback_data="set_tikuv")],
+        [types.InlineKeyboardButton(text=f"🎀 Karsaj: {PRICES['karsaj']:,.0f}", callback_data="set_karsaj")],
+        [types.InlineKeyboardButton(text=f"✨ Karset: {PRICES['karset']:,.0f}", callback_data="set_karset")],
+        [types.InlineKeyboardButton(text=f"🟡 Radnoy kalso: {PRICES['radnoy_kalso']:,.0f}", callback_data="set_radnoy_kalso")],
+        [types.InlineKeyboardButton(text=f"⚪ Oddiy kalso: {PRICES['oddiy_kalso']:,.0f}", callback_data="set_oddiy_kalso")],
+        [types.InlineKeyboardButton(text="📦 Mahsulotlar Hisoboti", callback_data="admin_report")],
+        [types.InlineKeyboardButton(text="❌ Bekor qilish", callback_data="set_cancel")]
+    ])
     msg = "⚙️ **Sozlamalar (Narxlar va Til)**\n\nO'zgartirmoqchi bo'lgan ma'lumotni tanlang:"
-    if isinstance(message_or_call, types.Message):
-        await message_or_call.answer(msg, reply_markup=kb, parse_mode="Markdown")
-    else:
-        await message_or_call.edit_text(msg, reply_markup=kb, parse_mode="Markdown")
+    if isinstance(m_or_c, types.Message): await m_or_c.answer(msg, reply_markup=kb, parse_mode="Markdown")
+    else: await m_or_c.edit_text(msg, reply_markup=kb, parse_mode="Markdown")
 
 @dp.callback_query(F.data.startswith('set_'))
 async def process_settings_cb(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id != ADMIN_ID:
-        return
-    
+    if callback.from_user.id != ADMIN_ID: return
     action = callback.data.replace('set_', '')
     if action == 'cancel':
         await callback.message.edit_text("⚙️ Sozlamalar yopildi.")
         return
-        
     if action == 'lang_toggle':
-        current_lang = PRICES.get('lang', 'uz')
-        PRICES['lang'] = 'ru' if current_lang == 'uz' else 'uz'
+        PRICES['lang'] = 'ru' if PRICES.get('lang', 'uz') == 'uz' else 'uz'
         save_prices(PRICES)
         await show_settings_menu(callback.message)
         return
-        
     await state.update_data(setting_key=action)
     await callback.message.edit_text(f"Yangi narxni yozing (masalan, 5000):")
     await state.set_state(SettingsProcess.waiting_for_price)
 
 @dp.message(StateFilter(SettingsProcess.waiting_for_price))
 async def update_price_value(message: types.Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
-        return
-        
+    if message.from_user.id != ADMIN_ID: return
     data = await state.get_data()
-    key = data.get('setting_key')
-    
     try:
-        price_str = message.text.replace('.', '').replace(',', '').replace(' ', '')
-        new_price = float(price_str)
-        PRICES[key] = new_price
+        p = float(message.text.replace('.', '').replace(',', '').replace(' ', ''))
+        PRICES[data.get('setting_key')] = p
         save_prices(PRICES)
-        
         await message.answer(f"✅ Narx muvaffaqiyatli saqlandi!")
         await show_settings_menu(message)
         await state.set_state(None)
-    except ValueError:
-        await message.answer("Iltimos, faqat raqam kiriting!")
+    except: await message.answer("Iltimos, faqat raqam kiriting!")
 
-async def main():
-    await dp.start_polling(bot)
-
-if __name__ == '__main__':
-    asyncio.run(main())
+async def main(): await dp.start_polling(bot)
+if __name__ == '__main__': asyncio.run(main())
