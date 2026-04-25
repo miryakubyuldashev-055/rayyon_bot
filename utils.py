@@ -9,8 +9,8 @@ def generate_receipt_image(order_data):
     # Rasm o'lchami va ranglari (High Resolution: 1200px)
     width = 1200
     rooms = order_data.get('rooms', [])
-    # Bo'yini hisoblash (Double the original spacing)
-    height = 500 + (len(rooms) * 400) + 300
+    # Bo'yini hisoblash (Increased height for larger fonts)
+    height = 600 + (len(rooms) * 500) + 400
     
     img = Image.new('RGB', (width, height), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
@@ -19,17 +19,17 @@ def generate_receipt_image(order_data):
     try:
         font_path = "C:\\Windows\\Fonts\\segoeui.ttf"
         font_path_bold = "C:\\Windows\\Fonts\\seguisb.ttf"
-        font_main = ImageFont.truetype(font_path, 45)
-        font_bold = ImageFont.truetype(font_path_bold, 60)
-        font_small = ImageFont.truetype(font_path, 32)
-        font_footer = ImageFont.truetype(font_path, 28)
+        font_main = ImageFont.truetype(font_path, 60)
+        font_bold = ImageFont.truetype(font_path_bold, 80)
+        font_small = ImageFont.truetype(font_path, 45)
+        font_footer = ImageFont.truetype(font_path, 40)
     except:
         try:
             font_path = "C:\\Windows\\Fonts\\arial.ttf"
-            font_main = ImageFont.truetype(font_path, 45)
-            font_bold = ImageFont.truetype(font_path, 60, index=1) # Bold if possible
-            font_small = ImageFont.truetype(font_path, 32)
-            font_footer = ImageFont.truetype(font_path, 28)
+            font_main = ImageFont.truetype(font_path, 60)
+            font_bold = ImageFont.truetype(font_path, 80, index=1)
+            font_small = ImageFont.truetype(font_path, 45)
+            font_footer = ImageFont.truetype(font_path, 40)
         except:
             font_main = ImageFont.load_default()
             font_bold = ImageFont.load_default()
@@ -53,7 +53,7 @@ def generate_receipt_image(order_data):
     for room in rooms:
         # Xona sarlavhasi
         draw.text((60, y), f"🏠 {room.get('room_name')}", font=font_bold, fill=(41, 128, 185))
-        y += 80
+        y += 100
         
         detail_lines = []
         if room.get('tyul_on'):
@@ -67,23 +67,23 @@ def generate_receipt_image(order_data):
             
         for line in detail_lines:
             draw.text((100, y), line, font=font_small, fill=(50, 50, 50))
-            y += 50
+            y += 70
             
-        y += 20
+        y += 30
         draw.text((width-60, y), f"Xona jami: {format_num(room.get('jami'))} so'm", font=font_main, fill=(0, 0, 0), anchor="ra")
-        y += 80
+        y += 100
         draw.line([60, y, width-60, y], fill=(240, 240, 240), width=2)
-        y += 50
+        y += 70
 
-    y += 40
+    y += 50
     # Umumiy hisob (Highlighted box)
-    box_height = 120
+    box_height = 150
     draw.rectangle([60, y, width-60, y+box_height], fill=header_color)
     draw.text((width//2, y + box_height//2), f"UMUMIY HISOB: {format_num(order_data.get('total_summa'))} SO'M", font=font_bold, fill=(255, 255, 255), anchor="mm")
     
-    y += box_height + 80
+    y += box_height + 100
     draw.text((width//2, y), "Bizni tanlaganingiz uchun rahmat!", font=font_small, fill=(100, 100, 100), anchor="mm")
-    y += 60
+    y += 80
     draw.text((width//2, y), "Telegram: @rayyonpardalar | Instagram: @rayyon_pardalar", font=font_footer, fill=(41, 128, 185), anchor="mm")
     
     # Rasmni saqlash
