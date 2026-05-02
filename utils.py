@@ -9,8 +9,8 @@ def generate_receipt_image(order_data):
     # Rasm o'lchami va ranglari (High Resolution: 1200px)
     width = 1200
     rooms = order_data.get('rooms', [])
-    # Bo'yini hisoblash (Increased height for larger fonts)
-    height = 1000 + (len(rooms) * 900) + 600
+    # Bo'yini hisoblash (Increased height for REALLY large fonts)
+    height = 1100 + (len(rooms) * 1100) + 700
     
     img = Image.new('RGB', (width, height), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
@@ -19,17 +19,17 @@ def generate_receipt_image(order_data):
     try:
         font_path = "C:\\Windows\\Fonts\\segoeui.ttf"
         font_path_bold = "C:\\Windows\\Fonts\\seguisb.ttf"
-        font_main = ImageFont.truetype(font_path, 120)
-        font_bold = ImageFont.truetype(font_path_bold, 160)
-        font_small = ImageFont.truetype(font_path, 90)
-        font_footer = ImageFont.truetype(font_path, 80)
+        font_main = ImageFont.truetype(font_path, 150)
+        font_bold = ImageFont.truetype(font_path_bold, 180)
+        font_small = ImageFont.truetype(font_path, 110)
+        font_footer = ImageFont.truetype(font_path, 90)
     except:
         try:
             font_path = "C:\\Windows\\Fonts\\arial.ttf"
-            font_main = ImageFont.truetype(font_path, 120)
-            font_bold = ImageFont.truetype(font_path, 160, index=1)
-            font_small = ImageFont.truetype(font_path, 90)
-            font_footer = ImageFont.truetype(font_path, 80)
+            font_main = ImageFont.truetype(font_path, 150)
+            font_bold = ImageFont.truetype(font_path, 180, index=1)
+            font_small = ImageFont.truetype(font_path, 110)
+            font_footer = ImageFont.truetype(font_path, 90)
         except:
             font_main = ImageFont.load_default()
             font_bold = ImageFont.load_default()
@@ -38,22 +38,22 @@ def generate_receipt_image(order_data):
 
     # Sarlavha (Premium Blue Gradient Style)
     header_color = (41, 128, 185)
-    draw.rectangle([0, 0, width, 250], fill=header_color)
-    draw.text((width//2, 125), "RAYYON PARDALAR", font=font_bold, fill=(255, 255, 255), anchor="mm")
+    draw.rectangle([0, 0, width, 300], fill=header_color)
+    draw.text((width//2, 150), "RAYYON PARDALAR", font=font_bold, fill=(255, 255, 255), anchor="mm")
     
-    y = 350
+    y = 380
     # Mijoz va Sana
     draw.text((60, y), f"Mijoz: {order_data.get('client_name')}", font=font_main, fill=(0, 0, 0))
-    draw.text((width-60, y), f"Sana: {order_data.get('date')}", font=font_small, fill=(100, 100, 100), anchor="ra")
+    draw.text((width-60, y+20), f"Sana: {order_data.get('date')}", font=font_small, fill=(100, 100, 100), anchor="ra")
     
-    y += 180
-    draw.line([60, y, width-60, y], fill=(200, 200, 200), width=4)
-    y += 100
+    y += 200
+    draw.line([60, y, width-60, y], fill=(200, 200, 200), width=6)
+    y += 120
     
     for room in rooms:
         # Xona sarlavhasi
         draw.text((60, y), f"🏠 {room.get('room_name')}", font=font_bold, fill=(41, 128, 185))
-        y += 180
+        y += 200
         
         detail_lines = []
         if room.get('tyul_on'):
@@ -66,24 +66,24 @@ def generate_receipt_image(order_data):
             detail_lines.append(f"• Zashitka: {format_num(room.get('zash_summa'))}")
             
         for line in detail_lines:
-            draw.text((100, y), line, font=font_small, fill=(50, 50, 50))
-            y += 120
+            draw.text((80, y), line, font=font_small, fill=(50, 50, 50))
+            y += 150
             
-        y += 60
+        y += 80
         draw.text((width-60, y), f"Xona jami: {format_num(room.get('jami'))} so'm", font=font_main, fill=(0, 0, 0), anchor="ra")
-        y += 180
-        draw.line([60, y, width-60, y], fill=(240, 240, 240), width=3)
-        y += 120
+        y += 200
+        draw.line([60, y, width-60, y], fill=(240, 240, 240), width=4)
+        y += 140
 
-    y += 80
+    y += 60
     # Umumiy hisob (Highlighted box)
-    box_height = 250
-    draw.rectangle([60, y, width-60, y+box_height], fill=header_color)
-    draw.text((width//2, y + box_height//2), f"UMUMIY HISOB: {format_num(order_data.get('total_summa'))} SO'M", font=font_bold, fill=(255, 255, 255), anchor="mm")
+    box_height = 300
+    draw.rectangle([40, y, width-40, y+box_height], fill=header_color)
+    draw.text((width//2, y + box_height//2), f"UMUMIY: {format_num(order_data.get('total_summa'))} SO'M", font=font_bold, fill=(255, 255, 255), anchor="mm")
     
-    y += box_height + 150
+    y += box_height + 180
     draw.text((width//2, y), "Bizni tanlaganingiz uchun rahmat!", font=font_small, fill=(100, 100, 100), anchor="mm")
-    y += 140
+    y += 180
     draw.text((width//2, y), "Telegram: @rayyonpardalar | Instagram: @rayyon_pardalar", font=font_footer, fill=(41, 128, 185), anchor="mm")
     
     # Rasmni saqlash
