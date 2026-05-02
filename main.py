@@ -605,8 +605,9 @@ async def finish_order(callback: types.CallbackQuery, state: FSMContext):
         # Faqat bitta rasm yuboramiz (matnli chek o'rniga)
         await bot.send_photo(callback.from_user.id, photo, caption="✅ Buyurtmangiz hisob-kitob qilindi!")
         
-        # Adminga ham yuborish
-        await bot.send_photo(ADMIN_ID, photo, caption=f"🗄 **YANGI BUYURTMA (Mijoz: {client_name})**")
+        # Adminga ham yuborish (faqat o'zi buyurtma bermagan bo'lsa)
+        if callback.from_user.id != ADMIN_ID:
+            await bot.send_photo(ADMIN_ID, photo, caption=f"🗄 **YANGI BUYURTMA (Mijoz: {client_name})**")
         
         # Hisob-kitob yakunlandi va chek yuborildi.
         await callback.message.edit_text("📄 Hisob-kitob yakunlandi va chek yuborildi.")
