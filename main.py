@@ -12,7 +12,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command, StateFilter
 from aiogram.types import FSInputFile, ReplyKeyboardMarkup, KeyboardButton
-from utils import generate_receipt_image
 
 # --- SOZLAMALAR ---
 API_TOKEN = os.getenv('BOT_TOKEN', '8797944374:AAE7xuw_RR5bhLIrFOxAYxXhy9HGB_cMBc8')
@@ -597,25 +596,11 @@ async def finish_order(callback: types.CallbackQuery, state: FSMContext):
         'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     }
     
-    try:
-        # Rasm chekni tayyorlash
-        photo_path = generate_receipt_image(order_data)
-        photo = FSInputFile(photo_path)
-        
-        # Faqat bitta rasm yuboramiz (matnli chek o'rniga)
-        await bot.send_photo(callback.from_user.id, photo, caption="✅ Buyurtmangiz hisob-kitob qilindi!")
-        
-        # Adminga ham yuborish (faqat o'zi buyurtma bermagan bo'lsa)
-        if callback.from_user.id != ADMIN_ID:
-            await bot.send_photo(ADMIN_ID, photo, caption=f"🗄 **YANGI BUYURTMA (Mijoz: {client_name})**")
-        
-        # Hisob-kitob yakunlandi va chek yuborildi.
-        await callback.message.edit_text("📄 Hisob-kitob yakunlandi va chek yuborildi.")
-            
-    except Exception as e:
-        print(f"Rasm yaratishda xatolik: {e}")
-        # Agar rasmda xato bo'lsa, eski matnli usulga qaytamiz
-        await callback.message.edit_text(final_text, parse_mode="Markdown", disable_web_page_preview=True)
+    # Matnli chekni foydalanuvchiga yuboramiz
+    await callback.message.edit_text(final_text, parse_mode="Markdown", disable_web_page_preview=True)
+    
+    # Adminga ham yuborish (faqat o'zi buyurtma bermagan bo'lsa)
+    if callback.from_user.id != ADMIN_ID:
         await bot.send_message(ADMIN_ID, f"🗄 **YANGI BUYURTMA (MATNLI):**\n\n{final_text}", parse_mode="Markdown")
 
     save_order(order_data)
