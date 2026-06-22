@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # local .env faylidan o'qiydi (Railway'da environment variables ishlatiladi)
 import asyncio
+from aiohttp import web 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
@@ -15,6 +16,18 @@ from aiogram.types import FSInputFile, ReplyKeyboardMarkup, KeyboardButton
 
 # --- SOZLAMALAR ---
 API_TOKEN = os.getenv('BOT_TOKEN', '8797944374:AAE7xuw_RR5bhLIrFOxAYxXhy9HGB_cMBc8')
+async def handle(request):
+    return web.Response(text="Bot is running!")
+
+async def start_server():
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
 ADMIN_ID = 5094694146
 
 PRICES_FILE = 'prices.json'
@@ -657,5 +670,19 @@ async def update_price_value(message: types.Message, state: FSMContext):
         await state.set_state(None)
     except: await message.answer("Iltimos, faqat raqam kiriting!")
 
-async def main(): await dp.start_polling(bot)
+async def handle(request):
+    return web.Response(text="Bot is running!")
+
+async def start_server():
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+async def main():
+    await start_server() 
+    await dp.start_polling(bot)
 if __name__ == '__main__': asyncio.run(main())
